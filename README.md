@@ -1,1 +1,1 @@
-This repo contains links to notebooks referred in my medium posts.
+This repository contains code files referred to in my medium posts.
