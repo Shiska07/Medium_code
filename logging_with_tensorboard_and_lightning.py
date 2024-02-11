@@ -186,32 +186,38 @@ class MnistVAE(pl.LightningModule):
     def step(self, batch, batch_idx):
 
         x, y = batch
+
+        # get encoder output
         encoder_out = self.encoder(x)
+
+        # get mean and variance
         mu = encoder_out[:, :self.latent_dim]
-        logvar = encoder_out[:, self.latent_dim:].clamp(np.log(1e-8), -np.log(
-            1e-8))
+        logvar = encoder_out[:, self.latent_dim:]
+
+        # get prior(p), posterior(q) and sample(z)
         p, q, z = self.sample(mu, logvar)
 
-        # get reconstruction
+        # get reconstruction from decoder
         x_hat = self.decoder(z)
 
-        # get classification
+        # get logits from classifier
         logits = self.classifier(z)
 
-        # RECONSTRUCTION LOSS
+        # 1. RECONSTRUCTION LOSS
         recon_loss = F.mse_loss(x_hat, x, reduction="mean")
 
-        # KL-LOSS
+        # 2. KL-LOSS
         kl = torch.distributions.kl_divergence(q, p)
         kl = kl.mean()
         kl *= 0.1
 
-        # CROSS-ENTROPY LOSS
+        # 3. CROSS-ENTROPY LOSS
         cross_entropy = torch.nn.functional.cross_entropy(logits, y)
 
-        # ACCURACY
+        # 4. ACCURACY (this is a custom function)
         acc = get_accuracy(logits, y)
 
+        # total loss is the combination of all 3 losses
         total_loss = recon_loss + kl + cross_entropy
 
         # store all logging metrics in a dict
@@ -221,38 +227,41 @@ class MnistVAE(pl.LightningModule):
             "ce_loss": cross_entropy,
             "acc": acc
         }
-
         return total_loss, log_dict
 
     def training_step(self, batch, batch_idx):
 
-        loss, logs = self.step(batch, batch_idx)
+        total_loss, log_dict = self.step(batch, batch_idx)
 
-        # to separate metrics according to stage add tags
+        # add stage tag to to specify the stage for logging
         stage_tag = "train"
-        for key, val in logs.items():
+        for key, val in log_dict.items():
             self.logger.experiment.add_scalars(key, {stage_tag: val},
                                                self.global_step)
-        return loss
+        return total_loss
 
     def validation_step(self, batch, batch_idx):
 
-        loss, logs = self.step(batch, batch_idx)
+        total_loss, log_dict = self.step(batch, batch_idx)
+
+        # add stage tag to to specify the stage for logging
         stage_tag = "val"
-        for key, val in logs.items():
+        for key, val in log_dict.items():
             self.logger.experiment.add_scalars(key, {stage_tag: val},
                                                self.global_step)
-        return loss
+        return total_loss
 
     def test_step(self, batch, batch_idx):
 
-        loss, logs = self.step(batch, batch_idx)
+        total_loss, log_dict = self.step(batch, batch_idx)
+
+        # add stage tag to to specify the stage for logging
         stage_tag = "test"
+        for key, val in log_dict.items():
+            self.logger.experiment.add_scalars(key, {stage_tag: val},
+                                               self.global_step)
 
-        for key, val in logs.items():
-            self.logger.experiment.add_scalars(key, {stage_tag: val}, self.global_step)
-
-        return loss
+        return total_loss
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-04)
@@ -275,8 +284,7 @@ if __name__ == "__main__":
     model = MnistVAE(input_channels, latent_dim, num_classes)
 
     # define logging dir
-    logging_dir =  "C:\\Users\\shisk\\Desktop\\Projects\\VAE_thesis\\MNIST" \
-                   "\\noteb_logs"
+    logging_dir =  "C:/Users/shisk/Desktop/MNIST/logs"
     os.makedirs(logging_dir, exist_ok=True)
     logging_name = "params1"
 
@@ -292,10 +300,7 @@ if __name__ == "__main__":
         enable_progress_bar=True,
         check_val_every_n_epoch=1,
         enable_checkpointing=True,
-        logger=tb_logger,
-        limit_train_batches=200,
-        limit_val_batches=1,
-        limit_test_batches=1
+        logger=tb_logger
     )
 
     # train and test
